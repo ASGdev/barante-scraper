@@ -22,6 +22,8 @@ const logger = winston.createLogger({
 });
 
 exports.run = async function (uri, outputDir, options) {
+	logger.log('info', "Running " + uri)
+
     // Set up browser and page.
     const browser = await puppeteer.launch({ headless: false })
     let scriptOutput = null
@@ -114,6 +116,21 @@ exports.run = async function (uri, outputDir, options) {
 				currentCount++
 			}
 			
+			// download images 2
+			const totalCount = imagesLink2.length
+			let currentCount = 1
+			for(const link of imagesLink2){
+				try {
+					await downloadFile(link, lot, currentCount, totalCount)
+				
+					await page.waitForTimeout(3000)
+				} catch(e){
+					logger.log('error', "Error downloading " + link)
+				}
+				
+				currentCount++
+			}
+			
 			await write(lot, description, imagesLink)
 			
 			const pageUrl = await page.url()
@@ -144,7 +161,7 @@ exports.run = async function (uri, outputDir, options) {
 				break;
 			}
 			
-			await page.waitForTimeout(9500)
+			await page.waitForTimeout(8000)
 			
 			await prevNextLotButtons[1].click()
 		}
@@ -246,7 +263,7 @@ async function dbConnect(){
 dbConnect()
 
 //this.run("https://www.interencheres.com/vehicules/vente-de-vehicules-de-collection-291407/", "./output")
-this.run("https://www.interencheres.com/meubles-objets-art/mobilier-et-objets-darts-tutelle-de-madame-l-et-a-divers-289436/", "./output")
+this.run("https://www.interencheres.com/meubles-objets-art/vente-courante-291750/", "./output")
 
 process.on('uncaughtException', function(err) {
 	logger.log('error', "Handling uncaughtException")
