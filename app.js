@@ -41,12 +41,12 @@ exports.run = async function (uri, outputDir, options) {
 		
 		logger.log('info', "Discovery started")
 		// scroll for all lots
-		for(i = 0; i < 100; i++){
+		for(i = 0; i < 200; i++){
 			await page.evaluate( () => {
 			  window.scrollBy(0, 500)
 			});
 			
-			await page.waitForTimeout(2000)
+			await page.waitForTimeout(1500)
 		}
 		
 		await page.evaluate( () => {
@@ -57,8 +57,8 @@ exports.run = async function (uri, outputDir, options) {
 
 		await page.waitForTimeout(30000)
 		
-		const prevNextLotButtons = await page.$$("button[data-v-0c63ee84][data-v-a4950456]")
-		const nextLotButtonIsEnabled = await page.$$eval("button[data-v-0c63ee84][data-v-a4950456]", els => els[1].hasAttribute("disabled"))
+		const prevNextLotButtons = await page.$$("button[data-v-a3103b90][data-v-2e3eafd4]")
+		const nextLotButtonIsEnabled = await page.$$eval("button[data-v-a3103b90][data-v-2e3eafd4]", els => els[1].hasAttribute("disabled"))
 		
 		while(1){
 			//const cap = new PuppeteerCapturer(page, "request")
@@ -68,7 +68,7 @@ exports.run = async function (uri, outputDir, options) {
 			//cap.stopCapturing()
 			
 			// get lot
-			const lotStr = await page.$eval("span[data-v-cbfd1e7c].mdc-typography--headline5", 
+			const lotStr = await page.$eval("div[data-v-a43cb7ba].text-h5.mr-2", 
 			el => el.textContent)
 			
 			const lot = lotStr.replace(/\D+/g, '')
@@ -76,24 +76,40 @@ exports.run = async function (uri, outputDir, options) {
 			logger.log('info', "Processing lot : " + lot)
 		
 			// get description
-			const description = await page.$eval("#sale-items > div.item-desktop.desktop > div.item-details.sidenav > div.item-details__body > div.info > div.description.mdc-typography--body2",
+			const description = await page.$eval("div[data-v-a43cb7ba].description.text-body-2.my-6",
 			el => el.textContent)
 			
 			console.log(description)
 			
+			/* imagesLink 1 */
 			const imagesLink = await page.$$eval("img.pswp__img", imgs => imgs.map(img => img.src))
 			
 			logger.log('info', "Found " + imagesLink.length + " images")
 
 			console.log(imagesLink)
 			
-			// download images
+			/* imagesLink 2 */
+			const imagesLink2 = await page.$$eval("a[itemtype=\"http://schema.org/ImageObject\"]", as => as.map(a => a.href))
+			//itemtype="http://schema.org/ImageObject"
+			
+			logger.log('info', "Found also " + imagesLink2.length + " images")
+
+			console.log(imagesLink2)
+			
+			// write links in links file
+			await writeLinks(lot, imagesLink2)
+
+			// download images 1
 			const totalCount = imagesLink.length
 			let currentCount = 1
 			for(const link of imagesLink){
-				await downloadFile(link, lot, currentCount, totalCount)
+				try {
+					await downloadFile(link, lot, currentCount, totalCount)
 				
-				await page.waitForTimeout(3000)
+					await page.waitForTimeout(3000)
+				} catch(e){
+					logger.log('error', "Error downloading " + link)
+				}
 				
 				currentCount++
 			}
@@ -119,7 +135,7 @@ exports.run = async function (uri, outputDir, options) {
 				logger.log('error', "Unable to generate warc for lot " + lot + " (" + pageUrl + ")")
 			}*/
 			
-			const nextLotButtonIsEnabled = await page.$$eval("button[data-v-0c63ee84][data-v-a4950456]", els => els[1].hasAttribute("disabled"))
+			const nextLotButtonIsEnabled = await page.$$eval("button[data-v-a3103b90][data-v-2e3eafd4]", els => els[1].hasAttribute("disabled"))
 			logger.log('info', "Found next lot")
 			
 			if(nextLotButtonIsEnabled) {
@@ -128,7 +144,7 @@ exports.run = async function (uri, outputDir, options) {
 				break;
 			}
 			
-			await page.waitForTimeout(8000)
+			await page.waitForTimeout(9500)
 			
 			await prevNextLotButtons[1].click()
 		}
@@ -149,6 +165,23 @@ exports.run = async function (uri, outputDir, options) {
 
     return scriptOutput
 };
+
+async function writeLinks(lot, links){
+	return new Promise(async (resolve, reject) => {
+		logger.log('info', "Writing link listing for lot " + lot)
+		try {
+			await fs.outputJson(path.join("./output", "lot" + lot, "links.json"), { links })
+			logger.log('info', "Writed link listing for lot " + lot)
+			
+			resolve()
+		} catch (e){
+			logger.log('error', "Error writing link listing for lot " + lot)
+			logger.log('error', e.toString())
+			console.log(e)
+			reject()
+		}
+	})
+}
 
 async function write(lot, description, links){
 	return new Promise(async (resolve, reject) => {
@@ -212,7 +245,8 @@ async function dbConnect(){
 
 dbConnect()
 
-this.run("https://www.interencheres.com/meubles-objets-art/bibliotheque-de-barante-1ere-partie-287608/", "./output")
+//this.run("https://www.interencheres.com/vehicules/vente-de-vehicules-de-collection-291407/", "./output")
+this.run("https://www.interencheres.com/meubles-objets-art/mobilier-et-objets-darts-tutelle-de-madame-l-et-a-divers-289436/", "./output")
 
 process.on('uncaughtException', function(err) {
 	logger.log('error', "Handling uncaughtException")
