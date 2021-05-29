@@ -117,11 +117,11 @@ exports.run = async function (uri, outputDir, options) {
 			}
 			
 			// download images 2
-			const totalCount = imagesLink2.length
+			const totalCount2 = imagesLink2.length
 			let currentCount = 1
 			for(const link of imagesLink2){
 				try {
-					await downloadFile(link, lot, currentCount, totalCount)
+					await downloadFile(link, lot, currentCount, totalCount2)
 				
 					await page.waitForTimeout(3000)
 				} catch(e){
