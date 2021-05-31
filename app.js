@@ -73,7 +73,7 @@ exports.run = async function (uri, outputDir, options) {
 			const lotStr = await page.$eval("div[data-v-a43cb7ba].text-h5.mr-2", 
 			el => el.textContent)
 			
-			const lot = lotStr.replace(/\D+/g, '')
+			const lot = lotStr.substring(6).replace(/\s/g, '');
 		
 			logger.log('info', "Processing lot : " + lot)
 		
@@ -108,7 +108,7 @@ exports.run = async function (uri, outputDir, options) {
 				try {
 					await downloadFile(link, lot, currentCount, totalCount)
 				
-					await page.waitForTimeout(3000)
+					await page.waitForTimeout(2000)
 				} catch(e){
 					logger.log('error', "Error downloading " + link)
 				}
@@ -123,7 +123,7 @@ exports.run = async function (uri, outputDir, options) {
 				try {
 					await downloadFile(link, lot, currentCount2, totalCount2)
 				
-					await page.waitForTimeout(3000)
+					await page.waitForTimeout(2000)
 				} catch(e){
 					logger.log('error', "Error downloading " + link)
 				}
@@ -161,7 +161,7 @@ exports.run = async function (uri, outputDir, options) {
 				break;
 			}
 			
-			await page.waitForTimeout(8000)
+			await page.waitForTimeout(5000)
 			
 			await prevNextLotButtons[1].click()
 		}
@@ -263,7 +263,7 @@ async function dbConnect(){
 dbConnect()
 
 //this.run("https://www.interencheres.com/vehicules/vente-de-vehicules-de-collection-291407/", "./output")
-this.run("https://www.interencheres.com/meubles-objets-art/vente-courante-291750/", "./output")
+this.run("https://www.interencheres.com/meubles-objets-art/archeologie-prehistoire-288251/", "./output")
 
 process.on('uncaughtException', function(err) {
 	logger.log('error', "Handling uncaughtException")
