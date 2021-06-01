@@ -255,7 +255,7 @@ async function dbConnect(){
 dbConnect()
 
 //this.run("https://www.interencheres.com/vehicules/vente-de-vehicules-de-collection-291407/", "./output")
-this.run("https://www.interencheres.com/meubles-objets-art/archeologie-prehistoire-288251/", "./output")
+this.run("https://www.interencheres.com/meubles-objets-art/vins-et-spiritueux-278783/", "./output")
 
 process.on('uncaughtException', function(err) {
 	logger.log('error', "Handling uncaughtException")

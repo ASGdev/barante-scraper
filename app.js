@@ -4,6 +4,7 @@ const { PuppeteerWARCGenerator, PuppeteerCapturer } = require('node-warc')
 const fs = require('fs-extra')
 const path = require('path')
 const Downloader = require('nodejs-file-downloader')
+const filenamifyUrl = require('filenamify-url')
 
 const winston = require('winston')
  
@@ -41,11 +42,17 @@ exports.run = async function (uri, outputDir, options) {
 		
 		await page.waitForTimeout(2000)
 		
+		// get vente description
+		const venteDescr = await page.$eval(".v-expansion-panel-content__wrap", 
+			el => el.innerHTML)
+			
+		await writeVenteDescr(venteDescr, outputDir)
+		
 		logger.log('info', "Discovery started")
 		// scroll for all lots
 		for(i = 0; i < 200; i++){
 			await page.evaluate( () => {
-			  window.scrollBy(0, 500)
+				window.scrollBy(0, 600)
 			});
 			
 			await page.waitForTimeout(1500)
@@ -57,18 +64,18 @@ exports.run = async function (uri, outputDir, options) {
 		
 		logger.log('info', "Discovery finished")
 
-		await page.waitForTimeout(30000)
+		await page.waitForTimeout(20000)
+		
+		await page.evaluate( () => {
+			document.querySelector("#page-1").children[0].click()
+		});
 		
 		const prevNextLotButtons = await page.$$("button[data-v-a3103b90][data-v-2e3eafd4]")
 		const nextLotButtonIsEnabled = await page.$$eval("button[data-v-a3103b90][data-v-2e3eafd4]", els => els[1].hasAttribute("disabled"))
 		
 		while(1){
-			//const cap = new PuppeteerCapturer(page, "request")
-			//cap.startCapturing()
-			await page.waitForTimeout(5000)
-			
-			//cap.stopCapturing()
-			
+			await page.waitForTimeout(2500)
+
 			// get lot
 			const lotStr = await page.$eval("div[data-v-a43cb7ba].text-h5.mr-2", 
 			el => el.textContent)
@@ -98,15 +105,18 @@ exports.run = async function (uri, outputDir, options) {
 
 			console.log(imagesLink2)
 			
+			await writeLinksGlobal(lot, imagesLink, outputDir)
+			await writeLinksGlobal(lot, imagesLink2, outputDir)
+			
 			// write links in links file
-			await writeLinks(lot, imagesLink2)
+			await writeLinks(lot, imagesLink2, outputDir)
 
 			// download images 1
 			const totalCount = imagesLink.length
 			let currentCount = 1
 			for(const link of imagesLink){
 				try {
-					await downloadFile(link, lot, currentCount, totalCount)
+					await downloadFile(link, lot, currentCount, totalCount, outputDir)
 				
 					await page.waitForTimeout(2000)
 				} catch(e){
@@ -121,7 +131,7 @@ exports.run = async function (uri, outputDir, options) {
 			let currentCount2 = 1
 			for(const link of imagesLink2){
 				try {
-					await downloadFile(link, lot, currentCount2, totalCount2)
+					await downloadFile(link, lot, currentCount2, totalCount2, outputDir)
 				
 					await page.waitForTimeout(2000)
 				} catch(e){
@@ -131,27 +141,10 @@ exports.run = async function (uri, outputDir, options) {
 				currentCount++
 			}
 			
-			await write(lot, description, imagesLink)
+			await write(lot, description, imagesLink, outputDir)
 			
 			const pageUrl = await page.url()
-			
-			/*logger.log('info', "Generating warc for lot " + lot)
-			const warcGen = new PuppeteerWARCGenerator()	
-			try {
-				await warcGen.generateWARC(cap, {
-					warcOpts: {
-					  warcPath: path.join("./output", lot, "lot" + lot + ".warc")
-					},
-					winfo: {
-					  description: 'Lot ' + lot + ' de la vente issue de la dispersion de la bibliotheque du chateau de Barante',
-					  isPartOf: 'Bibliotheque du chateau de Barante'
-					}
-				})
-				logger.log('info', "Generated warc for lot " + lot + " (" + pageUrl + ")")
-			} catch(e) {
-				logger.log('error', "Unable to generate warc for lot " + lot + " (" + pageUrl + ")")
-			}*/
-			
+
 			const nextLotButtonIsEnabled = await page.$$eval("button[data-v-a3103b90][data-v-2e3eafd4]", els => els[1].hasAttribute("disabled"))
 			logger.log('info', "Found next lot")
 			
@@ -161,7 +154,7 @@ exports.run = async function (uri, outputDir, options) {
 				break;
 			}
 			
-			await page.waitForTimeout(5000)
+			await page.waitForTimeout(2500)
 			
 			await prevNextLotButtons[1].click()
 		}
@@ -183,11 +176,11 @@ exports.run = async function (uri, outputDir, options) {
     return scriptOutput
 };
 
-async function writeLinks(lot, links){
+async function writeLinks(lot, links, out){
 	return new Promise(async (resolve, reject) => {
 		logger.log('info', "Writing link listing for lot " + lot)
 		try {
-			await fs.outputJson(path.join("./output", "lot" + lot, "links.json"), { links })
+			await fs.outputJson(path.join(out, "lot" + lot, "links.json"), { links })
 			logger.log('info', "Writed link listing for lot " + lot)
 			
 			resolve()
@@ -200,11 +193,28 @@ async function writeLinks(lot, links){
 	})
 }
 
-async function write(lot, description, links){
+async function writeLinksGlobal(lot, links, out){
+	return new Promise(async (resolve, reject) => {
+		logger.log('info', "Writing global link listing for lot " + lot)
+		try {
+			await fs.appendFile(path.join(out, "links-global.json"), JSON.stringify({ lot, links }))
+			logger.log('info', "Writed global link listing for lot " + lot)
+			
+			resolve()
+		} catch (e){
+			logger.log('error', "Error writing global link listing for lot " + lot)
+			logger.log('error', e.toString())
+			console.log(e)
+			reject()
+		}
+	})
+}
+
+async function write(lot, description, links, out){
 	return new Promise(async (resolve, reject) => {
 		logger.log('info', "Writing file for lot " + lot)
 		try {
-			await fs.outputJson(path.join("./output", "lot" + lot, "data.json"), { lot, description, links })
+			await fs.outputJson(path.join(out, "lot" + lot, "data.json"), { lot, description, links })
 			logger.log('info', "Writed file for lot " + lot)
 			
 			resolve()
@@ -217,12 +227,29 @@ async function write(lot, description, links){
 	})
 }
 
-async function downloadFile(url, numeroLot, currentCount, totalCount){
+async function writeVenteDescr(desc, out){
+	return new Promise(async (resolve, reject) => {
+		logger.log('info', "Writing vente descr file")
+		try {
+			await fs.outputFile(path.join(out, "description.htmlfragment"), desc)
+			logger.log('info', "Writed vente descr file")
+			
+			resolve()
+		} catch (e){
+			logger.log('error', "Error writing vente descr file")
+			logger.log('error', e.toString())
+			console.log(e)
+			reject()
+		}
+	})
+}
+
+async function downloadFile(url, numeroLot, currentCount, totalCount, out){
 	return new Promise(async (resolve, reject) => {
 		logger.log('info', "Downloading image " + currentCount + "/" + totalCount + " (" + url + ") for lot " + numeroLot)
 		const downloader = new Downloader({
 			url: url,    
-			directory: path.join("./output", "lot" + numeroLot)          
+			directory: path.join(out, "lot" + numeroLot)          
 		})
 		
 		try {
@@ -252,7 +279,7 @@ async function getFileName(url){
 	})
 }
 
-async function dbConnect(){
+/*async function dbConnect(){
 	try {
 		await client.connect()
 	} catch (e) {
@@ -260,10 +287,14 @@ async function dbConnect(){
 	}
 }
 
-dbConnect()
+dbConnect()*/
 
-//this.run("https://www.interencheres.com/vehicules/vente-de-vehicules-de-collection-291407/", "./output")
-this.run("https://www.interencheres.com/meubles-objets-art/archeologie-prehistoire-288251/", "./output")
+const _url = process.argv[2]
+console.log("Running " + _url)
+
+const _output = filenamifyUrl(_url)
+
+this.run(_url, path.join("./", _output))
 
 process.on('uncaughtException', function(err) {
 	logger.log('error', "Handling uncaughtException")
