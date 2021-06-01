@@ -64,17 +64,17 @@ exports.run = async function (uri, outputDir, options) {
 		
 		logger.log('info', "Discovery finished")
 
-		await page.waitForTimeout(20000)
+		await page.waitForTimeout(2000)
 		
 		await page.evaluate( () => {
-			document.querySelector("#page-1").children[0].click()
+			document.querySelector("#page-1 a").click()
 		});
 		
 		const prevNextLotButtons = await page.$$("button[data-v-a3103b90][data-v-2e3eafd4]")
 		const nextLotButtonIsEnabled = await page.$$eval("button[data-v-a3103b90][data-v-2e3eafd4]", els => els[1].hasAttribute("disabled"))
 		
 		while(1){
-			await page.waitForTimeout(2500)
+			await page.waitForTimeout(1000)
 
 			// get lot
 			const lotStr = await page.$eval("div[data-v-a43cb7ba].text-h5.mr-2", 
@@ -154,7 +154,7 @@ exports.run = async function (uri, outputDir, options) {
 				break;
 			}
 			
-			await page.waitForTimeout(2500)
+			await page.waitForTimeout(1000)
 			
 			await prevNextLotButtons[1].click()
 		}
