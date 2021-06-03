@@ -7,26 +7,12 @@ const Downloader = require('nodejs-file-downloader')
 const filenamifyUrl = require('filenamify-url')
 
 const winston = require('winston')
- 
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(
-	winston.format.timestamp(),
-	winston.format.json()
-  ),
-  transports: [
-    new winston.transports.File({ filename: './error.log', level: 'error', timestamp: true }),
-    new winston.transports.File({ filename: './info.log', level: 'info', timestamp: true }),
-	new winston.transports.File({ filename: './warn.log', level: 'warn', timestamp: true }),
-	new winston.transports.Console({ timestamp: true })
-  ],
-});
 
 exports.run = async function (uri, outputDir, options) {
 	logger.log('info', "Running " + uri)
 
     // Set up browser and page.
-    const browser = await puppeteer.launch({ headless: false })
+    const browser = await puppeteer.launch({ headless: false, defaultViewport: null, args: ['--start-maximized'] })
     let scriptOutput = null
 	
 	let entriesCount = 0
@@ -74,18 +60,22 @@ exports.run = async function (uri, outputDir, options) {
 		const nextLotButtonIsEnabled = await page.$$eval("button[data-v-a3103b90][data-v-2e3eafd4]", els => els[1].hasAttribute("disabled"))
 		
 		while(1){
-			await page.waitForTimeout(1000)
+			await page.waitForTimeout(1500)
 
 			// get lot
-			const lotStr = await page.$eval("div[data-v-a43cb7ba].text-h5.mr-2", 
-			el => el.textContent)
+			let lotStr = "lot" + Date.now().toString()
+			try {
+				lotStr = await page.$eval(".text-h5.mr-2", el => el.textContent)
+			} catch(e){
+				console.log("Not lot name found")
+			}
 			
 			const lot = lotStr.substring(6).replace(/\s/g, '');
 		
 			logger.log('info', "Processing lot : " + lot)
 		
 			// get description
-			const description = await page.$eval("div[data-v-a43cb7ba].description.text-body-2.my-6",
+			const description = await page.$eval(".description.text-body-2.my-6",
 			el => el.textContent)
 			
 			console.log(description)
@@ -164,14 +154,12 @@ exports.run = async function (uri, outputDir, options) {
 		console.log(e)
 		logger.log('error', e)
 		
-		console.log(e)
-		
-        //await browser.close()
+        await browser.close()
 
         return null
     }
 
-    //await browser.close()
+    await browser.close()
 
     return scriptOutput
 };
@@ -292,7 +280,21 @@ dbConnect()*/
 const _url = process.argv[2]
 console.log("Running " + _url)
 
-const _output = filenamifyUrl(_url)
+const _output = filenamifyUrl(_url) + "-" + Date.now().toString()
+
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+	winston.format.timestamp(),
+	winston.format.json()
+  ),
+  transports: [
+    new winston.transports.File({ filename: './' + _output + '/error.log', level: 'error', timestamp: true }),
+    new winston.transports.File({ filename: './' + _output + '/info.log', level: 'info', timestamp: true }),
+	new winston.transports.File({ filename: './' + _output + '/warn.log', level: 'warn', timestamp: true }),
+	new winston.transports.Console({ timestamp: true })
+  ],
+});
 
 this.run(_url, path.join("./", _output))
 
