@@ -52,12 +52,12 @@ exports.run = async function (uri, outputDir, options) {
 		
 		logger.log('info', "Discovery started")
 		// scroll for all lots
-		for(i = 1; i < 101; i++){
+		for(i = 1; i < 151; i++){
 			await page.evaluate( () => {
 				window.scrollBy(0, 800)
 			});
 
-			process.stdout.write("Discover progress : " + i + "/100\r");  // needs return '/r'
+			process.stdout.write("Discover progress : " + i + "/150\r");  // needs return '/r'
 			
 			await page.waitForTimeout(1500)
 		}
@@ -162,6 +162,10 @@ exports.run = async function (uri, outputDir, options) {
 			
 			if(nextLotButtonIsEnabled) {
 				logger.log('info', "Finished (last lot : " + lot + ")")
+				
+				processedLotCount++
+			
+				logger.log('info', "Processed lot " + processedLotCount + "/" + expectedLotCount)
 				
 				break;
 			}
