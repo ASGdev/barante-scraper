@@ -5,6 +5,7 @@ const fs = require('fs-extra')
 const path = require('path')
 const Downloader = require('nodejs-file-downloader')
 const filenamifyUrl = require('filenamify-url')
+const process = require('process');
 
 const winston = require('winston')
 
@@ -15,12 +16,12 @@ exports.run = async function (uri, outputDir, options) {
     const browser = await puppeteer.launch({ headless: false, defaultViewport: null, args: ['--start-maximized'] })
     let scriptOutput = null
 	
-	let entriesCount = 0
+	let processedLotCount = 0
+	let expectedLotCount = 0
 
     try {
         const page = await browser.newPage()
-        //page.setViewport({ width: 1280, height: 926 })
-		
+
 		await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.108 Safari/537.36')
 
         // Navigate to this blog post and wait a bit.
@@ -34,19 +35,51 @@ exports.run = async function (uri, outputDir, options) {
 			
 		await writeVenteDescr(venteDescr, outputDir)
 		
+		// interception to save json data
+		await page.setRequestInterception(true)
+		page.on('request', request => {
+			request.continue();
+		});
+		
+		page.on('response', async(response) => {
+			const request = response.request();
+			if (request.method() == "GET" && response.url().startsWith("https://search.prod-indb.io/v1/search")){
+				logger.log('info', "Found api data for " + request.url())
+				const content = await response.json()
+				writeJsonApiData(content, outputDir)
+			}
+		})
+		
 		logger.log('info', "Discovery started")
 		// scroll for all lots
-		for(i = 0; i < 200; i++){
+		for(i = 1; i < 101; i++){
 			await page.evaluate( () => {
-				window.scrollBy(0, 600)
+				window.scrollBy(0, 800)
 			});
+
+			process.stdout.write("Discover progress : " + i + "/100\r");  // needs return '/r'
 			
 			await page.waitForTimeout(1500)
 		}
 		
+		console.log("");
+		
+		const resultCount = await page.$$(".wrapper.v-card.v-sheet.v-sheet--outlined.theme--light.elevation-0.wrapper--gallery.wrapper--transparent.ma-2");
+		console.log("Found " + resultCount.length + " lots");
+		
+		expectedLotCount  = await page.$eval(".container.pa-0", el => {
+			const raw = el.children[1].textContent
+			
+			return raw.match(/^([0-9]*) lots/)[1]
+		})
+		
+		console.log("Expected " + expectedLotCount + " lots")
+		
+		//const lastLotNumber = await 
+		
 		await page.evaluate( () => {
 			window.scrollTo(0, 0)
-		});
+		})
 		
 		logger.log('info', "Discovery finished")
 
@@ -54,24 +87,24 @@ exports.run = async function (uri, outputDir, options) {
 		
 		await page.evaluate( () => {
 			document.querySelector("#page-1 a").click()
-		});
+		})
 		
 		const prevNextLotButtons = await page.$$("button[data-v-a3103b90][data-v-2e3eafd4]")
 		const nextLotButtonIsEnabled = await page.$$eval("button[data-v-a3103b90][data-v-2e3eafd4]", els => els[1].hasAttribute("disabled"))
-		
+
 		while(1){
-			await page.waitForTimeout(1500)
+			await page.waitForTimeout(2000)
 
 			// get lot
 			let lotStr = "lot" + Date.now().toString()
+			let lot = lotStr
 			try {
 				lotStr = await page.$eval(".text-h5.mr-2", el => el.textContent)
+				lot = lotStr.substring(6).replace(/\s/g, '');
 			} catch(e){
-				console.log("Not lot name found")
+				console.log("No lot name found")
 			}
-			
-			const lot = lotStr.substring(6).replace(/\s/g, '');
-		
+
 			logger.log('info', "Processing lot : " + lot)
 		
 			// get description
@@ -83,7 +116,7 @@ exports.run = async function (uri, outputDir, options) {
 			/* imagesLink 1 */
 			const imagesLink = await page.$$eval("img.pswp__img", imgs => imgs.map(img => img.src))
 			
-			logger.log('info', "Found " + imagesLink.length + " images")
+			logger.log('info', "Found " + imagesLink.length + " images for pass 1")
 
 			console.log(imagesLink)
 			
@@ -91,47 +124,36 @@ exports.run = async function (uri, outputDir, options) {
 			const imagesLink2 = await page.$$eval("a[itemtype=\"http://schema.org/ImageObject\"]", as => as.map(a => a.href))
 			//itemtype="http://schema.org/ImageObject"
 			
-			logger.log('info', "Found also " + imagesLink2.length + " images")
+			logger.log('info', "Found also " + imagesLink2.length + " images for pass 2")
 
 			console.log(imagesLink2)
 			
-			await writeLinksGlobal(lot, imagesLink, outputDir)
-			await writeLinksGlobal(lot, imagesLink2, outputDir)
+			// now remove duplicates
+			let uniquesSet = new Set([...imagesLink, ...imagesLink2])
+			const uniquesArr = Array.from(uniquesSet)
+			
+			logger.log('info', "Kept " + uniquesArr.length + " images")
+			console.log(uniquesArr)
+			
+			await writeLinksGlobal(lot, uniquesArr, outputDir)
 			
 			// write links in links file
-			await writeLinks(lot, imagesLink2, outputDir)
-
-			// download images 1
-			const totalCount = imagesLink.length
-			let currentCount = 1
-			for(const link of imagesLink){
+			await writeLinks(lot, uniquesArr, outputDir)	
+			
+			let progress = 1
+			for(const link of uniquesArr){
 				try {
-					await downloadFile(link, lot, currentCount, totalCount, outputDir)
+					await downloadFile(link, lot, progress, uniquesArr.length, outputDir)
 				
 					await page.waitForTimeout(2000)
 				} catch(e){
 					logger.log('error', "Error downloading " + link)
 				}
 				
-				currentCount++
+				progress++
 			}
 			
-			// download images 2
-			const totalCount2 = imagesLink2.length
-			let currentCount2 = 1
-			for(const link of imagesLink2){
-				try {
-					await downloadFile(link, lot, currentCount2, totalCount2, outputDir)
-				
-					await page.waitForTimeout(2000)
-				} catch(e){
-					logger.log('error', "Error downloading " + link)
-				}
-				
-				currentCount++
-			}
-			
-			await write(lot, description, imagesLink, outputDir)
+			await write(lot, description, uniquesArr, outputDir)
 			
 			const pageUrl = await page.url()
 
@@ -144,6 +166,14 @@ exports.run = async function (uri, outputDir, options) {
 				break;
 			}
 			
+			processedLotCount++
+			
+			logger.log('info', "Processed lot " + processedLotCount + "/" + expectedLotCount)
+			
+			console.log("**************************************")
+			console.log("Processed lot " + processedLotCount + "/" + expectedLotCount)
+			console.log("**************************************")
+			
 			await page.waitForTimeout(1000)
 			
 			await prevNextLotButtons[1].click()
@@ -154,10 +184,16 @@ exports.run = async function (uri, outputDir, options) {
 		console.log(e)
 		logger.log('error', e)
 		
+		console.log("Processed lots count : " + processedLotCount)
+		console.log("Expected lots count : " + expectedLotCount)
+		
         await browser.close()
 
         return null
     }
+	
+	console.log("Processed lots count : " + processedLotCount)
+	console.log("Expected lots count : " + expectedLotCount)
 
     await browser.close()
 
@@ -215,6 +251,23 @@ async function write(lot, description, links, out){
 	})
 }
 
+async function writeJsonApiData(data, out){
+	return new Promise(async (resolve, reject) => {
+		logger.log('info', "Writing json api data")
+		try {
+			await fs.outputJson(path.join(out, "api-data-" + Date.now().toString() + ".json"), data)
+			logger.log('info', "Writed json api data ")
+			
+			resolve()
+		} catch (e){
+			logger.log('error', "Error writing json api data")
+			logger.log('error', e.toString())
+			console.log(e)
+			reject()
+		}
+	})
+}
+
 async function writeVenteDescr(desc, out){
 	return new Promise(async (resolve, reject) => {
 		logger.log('info', "Writing vente descr file")
@@ -262,20 +315,10 @@ async function getFileName(url){
 		if(match[1]){
 			resolve(match[1])
 		} else {
-			resolve(Date.now().toString)
+			resolve(Date.now().toString())
 		}
 	})
 }
-
-/*async function dbConnect(){
-	try {
-		await client.connect()
-	} catch (e) {
-		console.log(e)
-	}
-}
-
-dbConnect()*/
 
 const _url = process.argv[2]
 console.log("Running " + _url)
