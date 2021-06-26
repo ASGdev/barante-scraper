@@ -193,7 +193,7 @@ exports.run = async function (uri, outputDir, options) {
 		console.log("Processed lots count : " + processedLotCount)
 		console.log("Expected lots count : " + expectedLotCount)
 		
-		logger.log('info', "Processed " + processedLotCount + " lots, exepected " + expectedLotCount)
+		logger.log('info', "Processed " + processedLotCount + " lots, expected " + expectedLotCount)
 		
         await browser.close()
 
@@ -203,7 +203,7 @@ exports.run = async function (uri, outputDir, options) {
 	console.log("Processed lots count : " + processedLotCount)
 	console.log("Expected lots count : " + expectedLotCount)
 	
-	logger.log('info', "Processed " + processedLotCount + " lots, exepected " + expectedLotCount)
+	logger.log('info', "Processed " + processedLotCount + " lots, expected " + expectedLotCount)
 
     await browser.close()
 
