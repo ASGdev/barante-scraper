@@ -64,8 +64,9 @@ exports.run = async function (uri, outputDir, options) {
 		
 		console.log("");
 		
-		const resultCount = await page.$$(".wrapper.v-card.v-sheet.v-sheet--outlined.theme--light.elevation-0.wrapper--gallery.wrapper--transparent.ma-2");
-		console.log("Found " + resultCount.length + " lots");
+		const resultCount = await page.$$(".wrapper.v-card.v-sheet.v-sheet--outlined.theme--light.elevation-0.wrapper--gallery.wrapper--transparent.ma-2")
+		console.log("Found " + resultCount.length + " lots")
+		logger.log('info', "Found " + resultCount.length + " lots")
 		
 		expectedLotCount  = await page.$eval(".container.pa-0", el => {
 			const raw = el.children[1].textContent
@@ -74,6 +75,7 @@ exports.run = async function (uri, outputDir, options) {
 		})
 		
 		console.log("Expected " + expectedLotCount + " lots")
+		logger.log('info', "Expected " + expectedLotCount + " lots")
 		
 		//const lastLotNumber = await 
 		
@@ -191,6 +193,8 @@ exports.run = async function (uri, outputDir, options) {
 		console.log("Processed lots count : " + processedLotCount)
 		console.log("Expected lots count : " + expectedLotCount)
 		
+		logger.log('info', "Processed " + processedLotCount + " lots, exepected " + expectedLotCount)
+		
         await browser.close()
 
         return null
@@ -198,6 +202,8 @@ exports.run = async function (uri, outputDir, options) {
 	
 	console.log("Processed lots count : " + processedLotCount)
 	console.log("Expected lots count : " + expectedLotCount)
+	
+	logger.log('info', "Processed " + processedLotCount + " lots, exepected " + expectedLotCount)
 
     await browser.close()
 
