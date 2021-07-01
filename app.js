@@ -5,7 +5,7 @@ const fs = require('fs-extra')
 const path = require('path')
 const Downloader = require('nodejs-file-downloader')
 const filenamifyUrl = require('filenamify-url')
-const process = require('process');
+const process = require('process')
 
 const winston = require('winston')
 

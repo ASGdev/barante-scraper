@@ -4,36 +4,24 @@ const { PuppeteerWARCGenerator, PuppeteerCapturer } = require('node-warc')
 const fs = require('fs-extra')
 const path = require('path')
 const Downloader = require('nodejs-file-downloader')
+const filenamifyUrl = require('filenamify-url')
+const process = require('process')
 
 const winston = require('winston')
- 
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(
-	winston.format.timestamp(),
-	winston.format.json()
-  ),
-  transports: [
-    new winston.transports.File({ filename: './error.log', level: 'error', timestamp: true }),
-    new winston.transports.File({ filename: './info.log', level: 'info', timestamp: true }),
-	new winston.transports.File({ filename: './warn.log', level: 'warn', timestamp: true }),
-	new winston.transports.Console({ timestamp: true })
-  ],
-});
 
 exports.run = async function (uri, outputDir, options) {
 	logger.log('info', "Running " + uri)
 
     // Set up browser and page.
-    const browser = await puppeteer.launch({ headless: false })
+    const browser = await puppeteer.launch({ headless: false, defaultViewport: null, args: ['--start-maximized'] })
     let scriptOutput = null
 	
-	let entriesCount = 0
+	let processedLotCount = 0
+	let expectedLotCount = 0
 
     try {
         const page = await browser.newPage()
-        page.setViewport({ width: 1280, height: 926 })
-		
+
 		await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.108 Safari/537.36')
 
         // Navigate to this blog post and wait a bit.
@@ -45,42 +33,84 @@ exports.run = async function (uri, outputDir, options) {
 		const venteDescr = await page.$eval(".v-expansion-panel-content__wrap", 
 			el => el.innerHTML)
 			
-		await writeVenteDescr(venteDescr)
+		await writeVenteDescr(venteDescr, outputDir)
+		
+		// interception to save json data
+		await page.setRequestInterception(true)
+		page.on('request', request => {
+			request.continue();
+		});
+		
+		page.on('response', async(response) => {
+			const request = response.request();
+			if (request.method() == "GET" && response.url().startsWith("https://search.prod-indb.io/v1/search")){
+				logger.log('info', "Found api data for " + request.url())
+				const content = await response.json()
+				writeJsonApiData(content, outputDir)
+			}
+		})
 		
 		logger.log('info', "Discovery started")
 		// scroll for all lots
-		for(i = 0; i < 170; i++){
+		for(i = 1; i < 151; i++){
 			await page.evaluate( () => {
-			  window.scrollBy(0, 500)
+				window.scrollBy(0, 800)
 			});
+
+			process.stdout.write("Discover progress : " + i + "/150\r");  // needs return '/r'
 			
 			await page.waitForTimeout(1500)
 		}
 		
+		console.log("");
+		
+		const resultCount = await page.$$(".wrapper.v-card.v-sheet.v-sheet--outlined.theme--light.elevation-0.wrapper--gallery.wrapper--transparent.ma-2")
+		console.log("Found " + resultCount.length + " lots")
+		logger.log('info', "Found " + resultCount.length + " lots")
+		
+		expectedLotCount  = await page.$eval(".container.pa-0", el => {
+			const raw = el.children[1].textContent
+			
+			return raw.match(/^([0-9]*) lots/)[1]
+		})
+		
+		console.log("Expected " + expectedLotCount + " lots")
+		logger.log('info', "Expected " + expectedLotCount + " lots")
+		
+		//const lastLotNumber = await 
+		
 		await page.evaluate( () => {
 			window.scrollTo(0, 0)
-		});
+		})
 		
 		logger.log('info', "Discovery finished")
 
-		await page.waitForTimeout(30000)
+		await page.waitForTimeout(2000)
+		
+		await page.evaluate( () => {
+			document.querySelector("#page-1 a").click()
+		})
 		
 		const prevNextLotButtons = await page.$$("button[data-v-a3103b90][data-v-2e3eafd4]")
 		const nextLotButtonIsEnabled = await page.$$eval("button[data-v-a3103b90][data-v-2e3eafd4]", els => els[1].hasAttribute("disabled"))
-		
+
 		while(1){
-			await page.waitForTimeout(5000)		
-			
+			await page.waitForTimeout(2000)
+
 			// get lot
-			const lotStr = await page.$eval("div[data-v-a43cb7ba].text-h5.mr-2", 
-			el => el.textContent)
-			
-			const lot = lotStr.substring(6).replace(/\s/g, '');
-		
+			let lotStr = "lot" + Date.now().toString()
+			let lot = lotStr
+			try {
+				lotStr = await page.$eval(".text-h5.mr-2", el => el.textContent)
+				lot = lotStr.substring(6).replace(/\s/g, '');
+			} catch(e){
+				console.log("No lot name found")
+			}
+
 			logger.log('info', "Processing lot : " + lot)
 		
 			// get description
-			const description = await page.$eval("div[data-v-a43cb7ba].description.text-body-2.my-6",
+			const description = await page.$eval(".description.text-body-2.my-6",
 			el => el.textContent)
 			
 			console.log(description)
@@ -88,7 +118,7 @@ exports.run = async function (uri, outputDir, options) {
 			/* imagesLink 1 */
 			const imagesLink = await page.$$eval("img.pswp__img", imgs => imgs.map(img => img.src))
 			
-			logger.log('info', "Found " + imagesLink.length + " images")
+			logger.log('info', "Found " + imagesLink.length + " images for pass 1")
 
 			console.log(imagesLink)
 			
@@ -96,30 +126,61 @@ exports.run = async function (uri, outputDir, options) {
 			const imagesLink2 = await page.$$eval("a[itemtype=\"http://schema.org/ImageObject\"]", as => as.map(a => a.href))
 			//itemtype="http://schema.org/ImageObject"
 			
-			logger.log('info', "Found also " + imagesLink2.length + " images")
+			logger.log('info', "Found also " + imagesLink2.length + " images for pass 2")
 
 			console.log(imagesLink2)
 			
+			// now remove duplicates
+			let uniquesSet = new Set([...imagesLink, ...imagesLink2])
+			const uniquesArr = Array.from(uniquesSet)
+			
+			logger.log('info', "Kept " + uniquesArr.length + " images")
+			console.log(uniquesArr)
+			
+			await writeLinksGlobal(lot, uniquesArr, outputDir)
+			
 			// write links in links file
-			await writeLinks(lot, imagesLink2)
+			await writeLinks(lot, uniquesArr, outputDir)	
 			
-			await writeLinksGlobal(lot, imagesLink)
-			await writeLinksGlobal(lot, imagesLink2)
+			/*let progress = 1
+			for(const link of uniquesArr){
+				try {
+					await downloadFile(link, lot, progress, uniquesArr.length, outputDir)
+				
+					await page.waitForTimeout(2000)
+				} catch(e){
+					logger.log('error', "Error downloading " + link)
+				}
+				
+				progress++
+			}*/
 			
-			await write(lot, description, imagesLink)
+			await write(lot, description, uniquesArr, outputDir)
 			
 			const pageUrl = await page.url()
-			
+
 			const nextLotButtonIsEnabled = await page.$$eval("button[data-v-a3103b90][data-v-2e3eafd4]", els => els[1].hasAttribute("disabled"))
 			logger.log('info', "Found next lot")
 			
 			if(nextLotButtonIsEnabled) {
 				logger.log('info', "Finished (last lot : " + lot + ")")
 				
+				processedLotCount++
+			
+				logger.log('info', "Processed lot " + processedLotCount + "/" + expectedLotCount)
+				
 				break;
 			}
 			
-			await page.waitForTimeout(4000)
+			processedLotCount++
+			
+			logger.log('info', "Processed lot " + processedLotCount + "/" + expectedLotCount)
+			
+			console.log("**************************************")
+			console.log("Processed lot " + processedLotCount + "/" + expectedLotCount)
+			console.log("**************************************")
+			
+			await page.waitForTimeout(1000)
 			
 			await prevNextLotButtons[1].click()
 		}
@@ -129,23 +190,31 @@ exports.run = async function (uri, outputDir, options) {
 		console.log(e)
 		logger.log('error', e)
 		
-		console.log(e)
+		console.log("Processed lots count : " + processedLotCount)
+		console.log("Expected lots count : " + expectedLotCount)
 		
-        //await browser.close()
+		logger.log('info', "Processed " + processedLotCount + " lots, expected " + expectedLotCount)
+		
+        await browser.close()
 
         return null
     }
+	
+	console.log("Processed lots count : " + processedLotCount)
+	console.log("Expected lots count : " + expectedLotCount)
+	
+	logger.log('info', "Processed " + processedLotCount + " lots, expected " + expectedLotCount)
 
-    //await browser.close()
+    await browser.close()
 
     return scriptOutput
 };
 
-async function writeLinks(lot, links){
+async function writeLinks(lot, links, out){
 	return new Promise(async (resolve, reject) => {
 		logger.log('info', "Writing link listing for lot " + lot)
 		try {
-			await fs.outputJson(path.join("./output", "lot" + lot, "links.json"), { links })
+			await fs.outputJson(path.join(out, "lot" + lot, "links.json"), { links })
 			logger.log('info', "Writed link listing for lot " + lot)
 			
 			resolve()
@@ -158,11 +227,11 @@ async function writeLinks(lot, links){
 	})
 }
 
-async function writeLinksGlobal(lot, links){
+async function writeLinksGlobal(lot, links, out){
 	return new Promise(async (resolve, reject) => {
 		logger.log('info', "Writing global link listing for lot " + lot)
 		try {
-			await fs.appendFile(path.join("./output", "links-global.json"), JSON.stringify({ lot, links }))
+			await fs.appendFile(path.join(out, "links-global.json"), JSON.stringify({ lot, links }))
 			logger.log('info', "Writed global link listing for lot " + lot)
 			
 			resolve()
@@ -175,11 +244,11 @@ async function writeLinksGlobal(lot, links){
 	})
 }
 
-async function write(lot, description, links){
+async function write(lot, description, links, out){
 	return new Promise(async (resolve, reject) => {
 		logger.log('info', "Writing file for lot " + lot)
 		try {
-			await fs.outputJson(path.join("./output", "lot" + lot, "data.json"), { lot, description, links })
+			await fs.outputJson(path.join(out, "lot" + lot, "data.json"), { lot, description, links })
 			logger.log('info', "Writed file for lot " + lot)
 			
 			resolve()
@@ -192,11 +261,28 @@ async function write(lot, description, links){
 	})
 }
 
-async function writeVenteDescr(desc){
+async function writeJsonApiData(data, out){
+	return new Promise(async (resolve, reject) => {
+		logger.log('info', "Writing json api data")
+		try {
+			await fs.outputJson(path.join(out, "api-data-" + Date.now().toString() + ".json"), data)
+			logger.log('info', "Writed json api data ")
+			
+			resolve()
+		} catch (e){
+			logger.log('error', "Error writing json api data")
+			logger.log('error', e.toString())
+			console.log(e)
+			reject()
+		}
+	})
+}
+
+async function writeVenteDescr(desc, out){
 	return new Promise(async (resolve, reject) => {
 		logger.log('info', "Writing vente descr file")
 		try {
-			await fs.outputFile(path.join("./output", "description.htmlfragment"), desc)
+			await fs.outputFile(path.join(out, "description.htmlfragment"), desc)
 			logger.log('info', "Writed vente descr file")
 			
 			resolve()
@@ -209,12 +295,12 @@ async function writeVenteDescr(desc){
 	})
 }
 
-async function downloadFile(url, numeroLot, currentCount, totalCount){
+async function downloadFile(url, numeroLot, currentCount, totalCount, out){
 	return new Promise(async (resolve, reject) => {
 		logger.log('info', "Downloading image " + currentCount + "/" + totalCount + " (" + url + ") for lot " + numeroLot)
 		const downloader = new Downloader({
 			url: url,    
-			directory: path.join("./output", "lot" + numeroLot)          
+			directory: path.join(out, "lot" + numeroLot)          
 		})
 		
 		try {
@@ -239,23 +325,31 @@ async function getFileName(url){
 		if(match[1]){
 			resolve(match[1])
 		} else {
-			resolve(Date.now().toString)
+			resolve(Date.now().toString())
 		}
 	})
 }
 
-async function dbConnect(){
-	try {
-		await client.connect()
-	} catch (e) {
-		console.log(e)
-	}
-}
+const _url = process.argv[2]
+console.log("Running " + _url)
 
-dbConnect()
+const _output = filenamifyUrl(_url) + "-disco-" + Date.now().toString()
 
-//this.run("https://www.interencheres.com/vehicules/vente-de-vehicules-de-collection-291407/", "./output")
-this.run("https://www.interencheres.com/meubles-objets-art/vins-et-spiritueux-278783/", "./output")
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+	winston.format.timestamp(),
+	winston.format.json()
+  ),
+  transports: [
+    new winston.transports.File({ filename: './' + _output + '/error.log', level: 'error', timestamp: true }),
+    new winston.transports.File({ filename: './' + _output + '/info.log', level: 'info', timestamp: true }),
+	new winston.transports.File({ filename: './' + _output + '/warn.log', level: 'warn', timestamp: true }),
+	new winston.transports.Console({ timestamp: true })
+  ],
+});
+
+this.run(_url, path.join("./", _output))
 
 process.on('uncaughtException', function(err) {
 	logger.log('error', "Handling uncaughtException")
