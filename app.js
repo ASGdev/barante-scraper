@@ -156,9 +156,9 @@ exports.run = async function (uri, outputDir, options) {
 			let progress = 1
 			for(const link of uniquesArr){
 				try {
-					//await downloadFile(link, lot, progress, uniquesArr.length, outputDir)
+					await downloadFile(link, lot, progress, uniquesArr.length, outputDir)
 				
-					//await page.waitForTimeout(2000)
+					await page.waitForTimeout(2000)
 				} catch(e){
 					logger.log('error', "Error downloading " + link)
 				}
@@ -169,10 +169,15 @@ exports.run = async function (uri, outputDir, options) {
 			await write(lot, description, uniquesArr, outputDir)
 			processedLotCount++
 			
+			logger.log('info', "Processed lot " + processedLotCount + "/" + expectedLotCount)
+				
+			console.log("**************************************")
+			console.log("Processed lot " + processedLotCount + "/" + expectedLotCount)
+			console.log("**************************************")
+			
 			const pageUrl = await page.url()
 
-			const nextLotButtonIsDisabled= await page.$$eval("button[data-v-a3103b90][data-v-2e3eafd4]", els => els[1].hasAttribute("disabled"))
-			//logger.log('info', "Found next lot")			
+			const nextLotButtonIsDisabled = await page.$$eval("button[data-v-a3103b90][data-v-2e3eafd4]", els => els[1].hasAttribute("disabled"))		
 			
 			if(nextLotButtonIsDisabled) {
 				console.log("No next lot");
@@ -200,14 +205,10 @@ exports.run = async function (uri, outputDir, options) {
 				
 					break;
 				}
-			} else {
-				logger.log('info', "Processed lot " + processedLotCount + "/" + expectedLotCount)
-				
-				console.log("**************************************")
-				console.log("Processed lot " + processedLotCount + "/" + expectedLotCount)
-				console.log("**************************************")
-				
+			} else {	
 				await page.waitForTimeout(1000)
+				
+				logger.log('info', "Found next lot")
 				
 				await prevNextLotButtons[1].click()
 			}
