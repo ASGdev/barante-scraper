@@ -1,3 +1,4 @@
+//v7
 const puppeteer = require('puppeteer')
 const { Events } = require('puppeteer')
 const { PuppeteerWARCGenerator, PuppeteerCapturer } = require('node-warc')
@@ -52,7 +53,7 @@ exports.run = async function (uri, outputDir, options) {
 		
 		logger.log('info', "Discovery started")
 		// scroll for all lots
-		for(i = 1; i < 151; i++){
+		for(i = 1; i < 20; i++){
 			await page.evaluate( () => {
 				window.scrollBy(0, 800)
 			});
@@ -90,12 +91,20 @@ exports.run = async function (uri, outputDir, options) {
 		await page.evaluate( () => {
 			document.querySelector("#page-1 a").click()
 		})
-		
-		const prevNextLotButtons = await page.$$("button[data-v-a3103b90][data-v-2e3eafd4]")
-		const nextLotButtonIsEnabled = await page.$$eval("button[data-v-a3103b90][data-v-2e3eafd4]", els => els[1].hasAttribute("disabled"))
 
+		let isNextPage = true;
 		while(1){
 			await page.waitForTimeout(2000)
+			
+			if(isNextPage){
+				await page.evaluate( () => {
+					document.querySelector("#paginated-list-wrapper-top > div.mr-n1.ml-n1.d-flex.flex-wrap.flex-grow-1.flex-shrink-1.flex-basis-auto").firstChild.lastChild.click()
+				})
+			
+				await page.waitForTimeout(2000)
+				
+				isNextPage = false;
+			}
 
 			// get lot
 			let lotStr = "lot" + Date.now().toString()
@@ -147,7 +156,7 @@ exports.run = async function (uri, outputDir, options) {
 				try {
 					await downloadFile(link, lot, progress, uniquesArr.length, outputDir)
 				
-					await page.waitForTimeout(2000)
+					await page.waitForTimeout(1500)
 				} catch(e){
 					logger.log('error', "Error downloading " + link)
 				}
@@ -156,33 +165,53 @@ exports.run = async function (uri, outputDir, options) {
 			}*/
 			
 			await write(lot, description, uniquesArr, outputDir)
+			processedLotCount++
+			
+			logger.log('info', "Processed lot " + lot + " : " + processedLotCount + "/" + expectedLotCount)
+				
+			console.log("**************************************")
+			console.log("Processed lot " + lot + " : " + processedLotCount + "/" + expectedLotCount)
+			console.log("**************************************")
 			
 			const pageUrl = await page.url()
 
-			const nextLotButtonIsEnabled = await page.$$eval("button[data-v-a3103b90][data-v-2e3eafd4]", els => els[1].hasAttribute("disabled"))
-			logger.log('info', "Found next lot")
+			const nextLotButtonIsDisabled = await page.$eval(".navigation button:last-child", el => el.hasAttribute("disabled"))
+			const nextLotButton = await page.$(".navigation button:last-child")			
 			
-			if(nextLotButtonIsEnabled) {
-				logger.log('info', "Finished (last lot : " + lot + ")")
+			if(nextLotButtonIsDisabled) {
+				console.log("No next lot");
+				logger.log('info', "Finished page");
+				// close lot
+				const closeLot = await page.$("#app > div.v-dialog__content.v-dialog__content--active > div > div > div.sale-item__panel.d-flex > div > div.flex-grow-1.item-details__content > div.content__top.d-flex.justify-space-between.align-center.px-3 > button.v-btn.v-btn--icon.v-btn--round.theme--light.v-size--default");
+				await closeLot.click();
 				
-				processedLotCount++
+				await page.waitFor(3000);
+				
+				// if button is disabled, return and check for new page
+				const nextPageButton = await page.$(".v-pagination li:last-child button")
+				
+				const disabledProp = await nextPageButton.getProperty("disabled");
+				const disabled = await disabledProp.jsonValue();
+				
+				if(!disabled){
+					console.log("next page detected")
+					isNextPage = true;
+					// got to next page
+					await nextPageButton.click();
+				} else {
+					logger.log('info', "Finished sale (last lot : " + lot + ")")
 			
-				logger.log('info', "Processed lot " + processedLotCount + "/" + expectedLotCount)
+					logger.log('info', "Processed lot " + processedLotCount + "/" + expectedLotCount)
 				
-				break;
+					break;
+				}
+			} else {	
+				await page.waitForTimeout(1000)
+				
+				logger.log('info', "Found next lot")
+				
+				await nextLotButton.click()
 			}
-			
-			processedLotCount++
-			
-			logger.log('info', "Processed lot " + processedLotCount + "/" + expectedLotCount)
-			
-			console.log("**************************************")
-			console.log("Processed lot " + processedLotCount + "/" + expectedLotCount)
-			console.log("**************************************")
-			
-			await page.waitForTimeout(1000)
-			
-			await prevNextLotButtons[1].click()
 		}
 
     } catch(e){

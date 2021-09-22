@@ -1,3 +1,4 @@
+//v7
 const puppeteer = require('puppeteer')
 const { Events } = require('puppeteer')
 const { PuppeteerWARCGenerator, PuppeteerCapturer } = require('node-warc')
@@ -52,7 +53,7 @@ exports.run = async function (uri, outputDir, options) {
 		
 		logger.log('info', "Discovery started")
 		// scroll for all lots
-		for(i = 1; i < 30; i++){
+		for(i = 1; i < 20; i++){
 			await page.evaluate( () => {
 				window.scrollBy(0, 800)
 			});
@@ -91,7 +92,7 @@ exports.run = async function (uri, outputDir, options) {
 			document.querySelector("#page-1 a").click()
 		})
 
-		let isNextPage = false;
+		let isNextPage = true;
 		while(1){
 			await page.waitForTimeout(2000)
 			
@@ -104,9 +105,6 @@ exports.run = async function (uri, outputDir, options) {
 				
 				isNextPage = false;
 			}
-			
-			const prevNextLotButtons = await page.$$("button[data-v-a3103b90][data-v-2e3eafd4]")
-			const nextLotButtonIsEnabled = await page.$$eval("button[data-v-a3103b90][data-v-2e3eafd4]", els => els[1].hasAttribute("disabled"))
 
 			// get lot
 			let lotStr = "lot" + Date.now().toString()
@@ -158,7 +156,7 @@ exports.run = async function (uri, outputDir, options) {
 				try {
 					await downloadFile(link, lot, progress, uniquesArr.length, outputDir)
 				
-					await page.waitForTimeout(2000)
+					await page.waitForTimeout(1500)
 				} catch(e){
 					logger.log('error', "Error downloading " + link)
 				}
@@ -169,15 +167,16 @@ exports.run = async function (uri, outputDir, options) {
 			await write(lot, description, uniquesArr, outputDir)
 			processedLotCount++
 			
-			logger.log('info', "Processed lot " + processedLotCount + "/" + expectedLotCount)
+			logger.log('info', "Processed lot " + lot + " : " + processedLotCount + "/" + expectedLotCount)
 				
 			console.log("**************************************")
-			console.log("Processed lot " + processedLotCount + "/" + expectedLotCount)
+			console.log("Processed lot " + lot + " : " + processedLotCount + "/" + expectedLotCount)
 			console.log("**************************************")
 			
 			const pageUrl = await page.url()
 
-			const nextLotButtonIsDisabled = await page.$$eval("button[data-v-a3103b90][data-v-2e3eafd4]", els => els[1].hasAttribute("disabled"))		
+			const nextLotButtonIsDisabled = await page.$eval(".navigation button:last-child", el => el.hasAttribute("disabled"))
+			const nextLotButton = await page.$(".navigation button:last-child")			
 			
 			if(nextLotButtonIsDisabled) {
 				console.log("No next lot");
@@ -189,12 +188,13 @@ exports.run = async function (uri, outputDir, options) {
 				await page.waitFor(3000);
 				
 				// if button is disabled, return and check for new page
-				const nextPageButton = await page.$("#paginated-list-wrapper-top > div.text-center.pt-6 > nav > ul > li:last-child > button")
+				const nextPageButton = await page.$(".v-pagination li:last-child button")
 				
 				const disabledProp = await nextPageButton.getProperty("disabled");
 				const disabled = await disabledProp.jsonValue();
 				
 				if(!disabled){
+					console.log("next page detected")
 					isNextPage = true;
 					// got to next page
 					await nextPageButton.click();
@@ -210,7 +210,7 @@ exports.run = async function (uri, outputDir, options) {
 				
 				logger.log('info', "Found next lot")
 				
-				await prevNextLotButtons[1].click()
+				await nextLotButton.click()
 			}
 		}
 
